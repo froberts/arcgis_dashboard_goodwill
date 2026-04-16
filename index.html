@@ -322,7 +322,7 @@
             // Configuration
             const CONFIG = {
                 // WebMap ID from ArcGIS Online
-                webMapId: "2ec50b2c5e4548528ee799d0f82bf41c",
+                webMapId: "0d0974a1106d4f4fbaf33b45b4c054d4",
 
                 // OAuth App ID - Register your app at https://developers.arcgis.com
                 // For now, using the portal URL for direct sign-in
@@ -464,24 +464,76 @@
                     });
                     view.ui.add(basemapExpand, "top-right");
 
-                    // Add TimeSlider widget at the bottom - limited to 2025
-                    const timeSlider = new TimeSlider({
-                        container: document.createElement("div"),
-                        view: view,
-                        mode: "time-window",
-                        fullTimeExtent: {
-                            start: new Date(2025, 0, 1),
-                            end: new Date(2025, 11, 31)
-                        },
-                        playRate: 1000,
-                        stops: {
-                            interval: {
-                                value: 1,
-                                unit: "months"
+                    // Add TimeSlider widget at the bottom - uses GeoTraceItem layer's time extent
+                    let timeSlider = null;
+
+                    // Find GeoTraceItem layer and set up TimeSlider with its time extent
+                    const geoTraceLayer = webMap.layers.find(layer =>
+                        layer.title && layer.title.toLowerCase().includes("geotraceitem")
+                    );
+
+                    if (geoTraceLayer) {
+                        geoTraceLayer.when(function() {
+                            // Query the layer to get the actual time extent of the data
+                            geoTraceLayer.queryExtent().then(function() {
+                                // Get time field and query min/max dates
+                                const timeField = geoTraceLayer.timeInfo ? geoTraceLayer.timeInfo.startField : null;
+
+                                if (timeField || geoTraceLayer.timeInfo) {
+                                    // Use layer's timeInfo fullTimeExtent if available
+                                    let fullExtent = geoTraceLayer.timeInfo && geoTraceLayer.timeInfo.fullTimeExtent;
+
+                                    if (fullExtent) {
+                                        timeSlider = new TimeSlider({
+                                            container: document.createElement("div"),
+                                            view: view,
+                                            mode: "time-window",
+                                            fullTimeExtent: fullExtent,
+                                            playRate: 1000,
+                                            stops: {
+                                                interval: {
+                                                    value: 1,
+                                                    unit: "days"
+                                                }
+                                            }
+                                        });
+                                        view.ui.add(timeSlider, "bottom-leading");
+                                        console.log("TimeSlider configured with GeoTraceItem time extent:", fullExtent.start, "to", fullExtent.end);
+                                    } else {
+                                        // Fallback: query for min/max dates
+                                        console.log("No fullTimeExtent on layer, using view timeExtent");
+                                        timeSlider = new TimeSlider({
+                                            container: document.createElement("div"),
+                                            view: view,
+                                            mode: "time-window",
+                                            playRate: 1000
+                                        });
+                                        view.ui.add(timeSlider, "bottom-leading");
+                                    }
+                                }
+                            });
+                        });
+                    } else {
+                        // Fallback if GeoTraceItem layer not found
+                        console.log("GeoTraceItem layer not found, using default time extent");
+                        timeSlider = new TimeSlider({
+                            container: document.createElement("div"),
+                            view: view,
+                            mode: "time-window",
+                            fullTimeExtent: {
+                                start: new Date(2025, 0, 1),
+                                end: new Date(2025, 11, 31)
+                            },
+                            playRate: 1000,
+                            stops: {
+                                interval: {
+                                    value: 1,
+                                    unit: "months"
+                                }
                             }
-                        }
-                    });
-                    view.ui.add(timeSlider, "bottom-leading");
+                        });
+                        view.ui.add(timeSlider, "bottom-leading");
+                    }
 
                     // Find the e-waste layer and set up stats tracking
                     const statsPanel = document.getElementById("statsPanel");
@@ -577,7 +629,11 @@
                                             }
                                         });
                                         // Initial stats calculation after chart is ready
-                                        updateEwasteStats(timeSlider.timeExtent);
+                                        if (timeSlider) {
+                                            updateEwasteStats(timeSlider.timeExtent);
+                                        } else {
+                                            updateEwasteStats(null);
+                                        }
 
                                         // Toggle expand/collapse
                                         document.getElementById("expandChartBtn").addEventListener("click", function() {
@@ -596,12 +652,16 @@
                                 }
 
                                 // Update stats when time extent changes
-                                timeSlider.watch("timeExtent", function(timeExtent) {
-                                    updateEwasteStats(timeExtent);
-                                });
-
-                                // Initial stats calculation (for total, even if chart not ready)
-                                updateEwasteStats(timeSlider.timeExtent);
+                                if (timeSlider) {
+                                    timeSlider.watch("timeExtent", function(timeExtent) {
+                                        updateEwasteStats(timeExtent);
+                                    });
+                                    // Initial stats calculation (for total, even if chart not ready)
+                                    updateEwasteStats(timeSlider.timeExtent);
+                                } else {
+                                    // TimeSlider not ready yet, just show total stats
+                                    updateEwasteStats(null);
+                                }
                             } else {
                                 console.warn("No numeric field found for e-waste stats");
                             }
