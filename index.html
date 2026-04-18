@@ -245,6 +245,175 @@
         #chartPanel.expanded #chartContainer {
             height: 380px;
         }
+
+        /* Data Table Tray */
+        #tableTray {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 40px;
+            background: white;
+            box-shadow: 0 -2px 8px rgba(0,0,0,0.2);
+            z-index: 60;
+            transition: height 0.3s ease;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #tableTray.expanded {
+            height: 300px;
+        }
+
+        #tableTray .tray-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 15px;
+            background: #2b2b2b;
+            color: white;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+
+        #tableTray .tray-header h3 {
+            margin: 0;
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        #tableTray .tray-header .clear-btn {
+            background: #555;
+            color: white;
+            border: none;
+            padding: 4px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.75rem;
+            margin-right: 10px;
+            display: none;
+        }
+
+        #tableTray .tray-header .clear-btn:hover {
+            background: #777;
+        }
+
+        #tableTray .tray-header .clear-btn.visible {
+            display: inline-block;
+        }
+
+        #tableTray .tray-header .toggle-icon {
+            font-size: 1rem;
+            transition: transform 0.3s ease;
+        }
+
+        #tableTray.expanded .tray-header .toggle-icon {
+            transform: rotate(180deg);
+        }
+
+        #tableTray .tray-content {
+            flex: 1;
+            overflow: auto;
+            display: none;
+        }
+
+        #tableTray.expanded .tray-content {
+            display: block;
+        }
+
+        #tableTray .table-toolbar {
+            display: none;
+            padding: 8px 12px;
+            background: #f5f5f5;
+            border-bottom: 1px solid #ddd;
+        }
+
+        #tableTray.expanded .table-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        #tableTray .table-toolbar button {
+            background: #0079c1;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.75rem;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        #tableTray .table-toolbar button:hover {
+            background: #005a8e;
+        }
+
+        #tableTray .table-toolbar .record-count {
+            margin-left: auto;
+            font-size: 0.75rem;
+            color: #666;
+        }
+
+        #dataTable {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.8125rem;
+        }
+
+        #dataTable th {
+            background: #f5f5f5;
+            padding: 8px 12px;
+            text-align: left;
+            font-weight: 600;
+            border-bottom: 2px solid #ddd;
+            position: sticky;
+            top: 0;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        #dataTable th:hover {
+            background: #e8e8e8;
+        }
+
+        #dataTable th .sort-icon {
+            margin-left: 5px;
+            opacity: 0.3;
+        }
+
+        #dataTable th.sorted .sort-icon {
+            opacity: 1;
+        }
+
+        #dataTable td {
+            padding: 6px 12px;
+            border-bottom: 1px solid #eee;
+        }
+
+        #dataTable tr:hover {
+            background: #f9f9f9;
+            cursor: pointer;
+        }
+
+        #dataTable tr.selected {
+            background: #e3f2fd;
+        }
+
+        /* Pulsing highlight animation */
+        @keyframes pulse {
+            0% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.6; transform: scale(1.5); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+
+        #dataTable .no-data {
+            text-align: center;
+            color: #888;
+            padding: 20px;
+        }
     </style>
 </head>
 <body>
@@ -267,16 +436,44 @@
         </div>
         <!-- Stats Panel -->
         <div id="statsPanel" style="display: none;">
-            <h3>Total E-Waste</h3>
+            <h3>Total Weight</h3>
             <div class="stat-value" id="ewasteTotal">0</div>
             <div class="stat-label">for selected time period</div>
         </div>
         <!-- Bar Chart Panel -->
         <div id="chartPanel" style="display: none;">
             <button class="expand-btn" id="expandChartBtn">Expand</button>
-            <h3>E-Waste by Store</h3>
+            <h3>Weight by Item Type</h3>
             <div id="chartContainer">
                 <canvas id="ewasteChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Data Table Tray -->
+        <div id="tableTray">
+            <div class="tray-header" id="trayToggle">
+                <h3>Data Table</h3>
+                <button class="clear-btn" id="clearSelectionBtn">Clear Selection</button>
+                <span class="toggle-icon">&#9650;</span>
+            </div>
+            <div class="tray-content">
+                <div class="table-toolbar">
+                    <button id="exportCsvBtn">&#128190; Export to CSV</button>
+                    <span class="record-count" id="recordCount">0 records</span>
+                </div>
+                <table id="dataTable">
+                    <thead>
+                        <tr>
+                            <th data-sort="type">Type <span class="sort-icon">&#9650;</span></th>
+                            <th data-sort="weight">Weight <span class="sort-icon">&#9650;</span></th>
+                            <th data-sort="store">Store <span class="sort-icon">&#9650;</span></th>
+                            <th data-sort="date">Date <span class="sort-icon">&#9650;</span></th>
+                        </tr>
+                    </thead>
+                    <tbody id="dataTableBody">
+                        <tr><td colspan="4" class="no-data">Loading data...</td></tr>
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>
@@ -316,8 +513,10 @@
             "esri/widgets/BasemapGallery",
             "esri/identity/OAuthInfo",
             "esri/identity/IdentityManager",
-            "esri/portal/Portal"
-        ], function(WebMap, MapView, LayerList, Expand, TimeSlider, BasemapGallery, OAuthInfo, IdentityManager, Portal) {
+            "esri/portal/Portal",
+            "esri/layers/GraphicsLayer",
+            "esri/Graphic"
+        ], function(WebMap, MapView, LayerList, Expand, TimeSlider, BasemapGallery, OAuthInfo, IdentityManager, Portal, GraphicsLayer, Graphic) {
 
             // Configuration
             const CONFIG = {
@@ -427,6 +626,15 @@
                 view.when(function() {
                     loadingIndicator.style.display = "none";
 
+                    // Create a graphics layer for highlighting selected features
+                    const highlightLayer = new GraphicsLayer({
+                        title: "Highlight"
+                    });
+                    webMap.add(highlightLayer);
+
+                    let pulseAnimation = null;
+                    let selectedRowIndex = null;
+
                     // Add LayerList (Table of Contents) widget
                     const layerList = new LayerList({
                         view: view,
@@ -469,53 +677,58 @@
 
                     // Find GeoTraceItem layer and set up TimeSlider with its time extent
                     const geoTraceLayer = webMap.layers.find(layer =>
-                        layer.title && layer.title.toLowerCase().includes("geotraceitem")
+                        layer.title && layer.title.toLowerCase().includes("geotrace")
                     );
 
                     if (geoTraceLayer) {
                         geoTraceLayer.when(function() {
-                            // Query the layer to get the actual time extent of the data
-                            geoTraceLayer.queryExtent().then(function() {
-                                // Get time field and query min/max dates
-                                const timeField = geoTraceLayer.timeInfo ? geoTraceLayer.timeInfo.startField : null;
+                            // Enable time filtering on the layer
+                            geoTraceLayer.useViewTime = true;
+                            console.log("GeoTrace Item layer timeInfo:", geoTraceLayer.timeInfo);
 
-                                if (timeField || geoTraceLayer.timeInfo) {
-                                    // Use layer's timeInfo fullTimeExtent if available
-                                    let fullExtent = geoTraceLayer.timeInfo && geoTraceLayer.timeInfo.fullTimeExtent;
+                            // Use layer's timeInfo fullTimeExtent if available, otherwise use default
+                            let fullExtent = geoTraceLayer.timeInfo && geoTraceLayer.timeInfo.fullTimeExtent;
 
-                                    if (fullExtent) {
-                                        timeSlider = new TimeSlider({
-                                            container: document.createElement("div"),
-                                            view: view,
-                                            mode: "time-window",
-                                            fullTimeExtent: fullExtent,
-                                            playRate: 1000,
-                                            stops: {
-                                                interval: {
-                                                    value: 1,
-                                                    unit: "days"
-                                                }
-                                            }
-                                        });
-                                        view.ui.add(timeSlider, "bottom-leading");
-                                        console.log("TimeSlider configured with GeoTraceItem time extent:", fullExtent.start, "to", fullExtent.end);
-                                    } else {
-                                        // Fallback: query for min/max dates
-                                        console.log("No fullTimeExtent on layer, using view timeExtent");
-                                        timeSlider = new TimeSlider({
-                                            container: document.createElement("div"),
-                                            view: view,
-                                            mode: "time-window",
-                                            playRate: 1000
-                                        });
-                                        view.ui.add(timeSlider, "bottom-leading");
+                            if (fullExtent) {
+                                timeSlider = new TimeSlider({
+                                    container: document.createElement("div"),
+                                    view: view,
+                                    mode: "time-window",
+                                    fullTimeExtent: fullExtent,
+                                    playRate: 1000,
+                                    stops: {
+                                        interval: {
+                                            value: 1,
+                                            unit: "days"
+                                        }
                                     }
-                                }
-                            });
+                                });
+                                console.log("TimeSlider configured with layer time extent:", fullExtent.start, "to", fullExtent.end);
+                            } else {
+                                // Fallback: use default date range
+                                console.log("No timeInfo on layer, using default time extent");
+                                timeSlider = new TimeSlider({
+                                    container: document.createElement("div"),
+                                    view: view,
+                                    mode: "time-window",
+                                    fullTimeExtent: {
+                                        start: new Date(2025, 0, 1),
+                                        end: new Date(2025, 11, 31)
+                                    },
+                                    playRate: 1000,
+                                    stops: {
+                                        interval: {
+                                            value: 1,
+                                            unit: "months"
+                                        }
+                                    }
+                                });
+                            }
+                            view.ui.add(timeSlider, "bottom-leading");
                         });
                     } else {
-                        // Fallback if GeoTraceItem layer not found
-                        console.log("GeoTraceItem layer not found, using default time extent");
+                        // Fallback if GeoTrace Item layer not found
+                        console.log("GeoTrace Item layer not found, using default time extent");
                         timeSlider = new TimeSlider({
                             container: document.createElement("div"),
                             view: view,
@@ -535,11 +748,10 @@
                         view.ui.add(timeSlider, "bottom-leading");
                     }
 
-                    // Find the e-waste layer and set up stats tracking
+                    // Set up stats tracking using GeoTraceItem layer
                     const statsPanel = document.getElementById("statsPanel");
                     const ewasteTotalEl = document.getElementById("ewasteTotal");
                     const chartPanel = document.getElementById("chartPanel");
-                    let ewasteLayer = null;
                     let ewasteFieldName = null;
                     let storeFieldName = null;
                     let ewasteChart = null;
@@ -550,35 +762,19 @@
                         console.log("Layer:", layer.title, "| Type:", layer.type);
                     });
 
-                    // Search for e-waste layer - try multiple patterns or use first FeatureLayer
-                    webMap.layers.forEach(function(layer) {
-                        if (layer.type === "feature") {
-                            const layerTitle = layer.title ? layer.title.toLowerCase() : "";
-                            // Match various naming patterns
-                            if (layerTitle.includes("ewaste") || layerTitle.includes("e-waste") ||
-                                layerTitle.includes("e_waste") || layerTitle.includes("waste")) {
-                                ewasteLayer = layer;
-                            }
-                            // If no match yet, use first feature layer as fallback
-                            if (!ewasteLayer) {
-                                ewasteLayer = layer;
-                            }
-                        }
-                    });
-
-                    // If found, set up the stats
-                    if (ewasteLayer) {
-                        console.log("Using layer:", ewasteLayer.title);
-                        ewasteLayer.when(function() {
+                    // Use GeoTraceItem layer for stats and chart
+                    if (geoTraceLayer) {
+                        console.log("Using GeoTraceItem layer for chart:", geoTraceLayer.title);
+                        geoTraceLayer.when(function() {
                             // Log all fields to help identify the correct one
-                            console.log("=== Fields in", ewasteLayer.title, "===");
-                            ewasteLayer.fields.forEach(function(field) {
+                            console.log("=== Fields in", geoTraceLayer.title, "===");
+                            geoTraceLayer.fields.forEach(function(field) {
                                 console.log("Field:", field.name, "| Type:", field.type);
                             });
 
                             // Use specific field names
-                            ewasteFieldName = "Ewaste";
-                            storeFieldName = "StoreNumber";
+                            ewasteFieldName = "weight";
+                            storeFieldName = "type";
 
                             console.log("Using e-waste field:", ewasteFieldName);
                             console.log("Using store field:", storeFieldName);
@@ -596,7 +792,7 @@
                                             data: {
                                                 labels: [],
                                                 datasets: [{
-                                                    label: "E-Waste Volume",
+                                                    label: "Weight",
                                                     data: [],
                                                     backgroundColor: "rgba(0, 121, 193, 0.7)",
                                                     borderColor: "rgba(0, 121, 193, 1)",
@@ -611,13 +807,13 @@
                                                         beginAtZero: true,
                                                         title: {
                                                             display: true,
-                                                            text: "Volume"
+                                                            text: "Weight"
                                                         }
                                                     },
                                                     x: {
                                                         title: {
                                                             display: true,
-                                                            text: "Store"
+                                                            text: "Item Type"
                                                         }
                                                     }
                                                 },
@@ -667,40 +863,324 @@
                             }
                         });
                     } else {
-                        console.warn("No feature layer found for e-waste stats");
+                        console.warn("GeoTraceItem layer not found for chart");
+                    }
+
+                    // Table tray toggle
+                    document.getElementById("trayToggle").addEventListener("click", function(e) {
+                        // Don't toggle if clicking the clear button
+                        if (e.target.id === "clearSelectionBtn") return;
+                        document.getElementById("tableTray").classList.toggle("expanded");
+                    });
+
+                    // Clear selection button
+                    document.getElementById("clearSelectionBtn").addEventListener("click", function(e) {
+                        e.stopPropagation();
+                        clearSelection();
+                    });
+
+                    // Export to CSV button
+                    document.getElementById("exportCsvBtn").addEventListener("click", function() {
+                        exportTableToCSV();
+                    });
+
+                    // Function to export table data to CSV
+                    function exportTableToCSV() {
+                        if (currentTableData.length === 0) {
+                            alert("No data to export");
+                            return;
+                        }
+
+                        // CSV header
+                        let csv = "Type,Weight,Store,Date\n";
+
+                        // Add rows
+                        currentTableData.forEach(function(row) {
+                            let dateStr = row.date;
+                            if (typeof dateStr === "number") {
+                                dateStr = new Date(dateStr).toLocaleDateString();
+                            }
+
+                            // Escape values that might contain commas or quotes
+                            const type = '"' + String(row.type).replace(/"/g, '""') + '"';
+                            const weight = row.weight;
+                            const store = '"' + String(row.store).replace(/"/g, '""') + '"';
+                            const date = '"' + String(dateStr).replace(/"/g, '""') + '"';
+
+                            csv += type + "," + weight + "," + store + "," + date + "\n";
+                        });
+
+                        // Create download link
+                        const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+                        const url = URL.createObjectURL(blob);
+                        const link = document.createElement("a");
+                        link.setAttribute("href", url);
+                        link.setAttribute("download", "geotrace_data_" + new Date().toISOString().slice(0,10) + ".csv");
+                        link.style.display = "none";
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        URL.revokeObjectURL(url);
+                    }
+
+                    // Table sorting state
+                    let currentTableData = [];
+                    let currentSortColumn = null;
+                    let currentSortAsc = true;
+
+                    // Add click handlers for sortable columns
+                    document.querySelectorAll("#dataTable th[data-sort]").forEach(function(th) {
+                        th.addEventListener("click", function() {
+                            const column = this.getAttribute("data-sort");
+
+                            // Toggle direction if same column, otherwise default to ascending
+                            if (currentSortColumn === column) {
+                                currentSortAsc = !currentSortAsc;
+                            } else {
+                                currentSortColumn = column;
+                                currentSortAsc = true;
+                            }
+
+                            // Update header styles
+                            document.querySelectorAll("#dataTable th").forEach(function(header) {
+                                header.classList.remove("sorted");
+                                header.querySelector(".sort-icon").innerHTML = "&#9650;";
+                            });
+                            this.classList.add("sorted");
+                            this.querySelector(".sort-icon").innerHTML = currentSortAsc ? "&#9650;" : "&#9660;";
+
+                            // Sort and re-render
+                            sortTableData();
+                            renderTable();
+                        });
+                    });
+
+                    function sortTableData() {
+                        if (!currentSortColumn || currentTableData.length === 0) return;
+
+                        currentTableData.sort(function(a, b) {
+                            let valA = a[currentSortColumn];
+                            let valB = b[currentSortColumn];
+
+                            // Handle numeric sorting for weight
+                            if (currentSortColumn === "weight") {
+                                valA = parseFloat(valA) || 0;
+                                valB = parseFloat(valB) || 0;
+                                return currentSortAsc ? valA - valB : valB - valA;
+                            }
+
+                            // Handle date sorting
+                            if (currentSortColumn === "date") {
+                                if (typeof valA === "number") valA = new Date(valA);
+                                if (typeof valB === "number") valB = new Date(valB);
+                                if (valA instanceof Date && valB instanceof Date) {
+                                    return currentSortAsc ? valA - valB : valB - valA;
+                                }
+                            }
+
+                            // String sorting
+                            valA = String(valA || "").toLowerCase();
+                            valB = String(valB || "").toLowerCase();
+                            if (valA < valB) return currentSortAsc ? -1 : 1;
+                            if (valA > valB) return currentSortAsc ? 1 : -1;
+                            return 0;
+                        });
+                    }
+
+                    function renderTable() {
+                        const tbody = document.getElementById("dataTableBody");
+
+                        if (currentTableData.length === 0) {
+                            tbody.innerHTML = '<tr><td colspan="4" class="no-data">No data available</td></tr>';
+                            return;
+                        }
+
+                        let html = "";
+                        currentTableData.forEach(function(row, index) {
+                            let dateStr = row.date;
+                            if (typeof dateStr === "number") {
+                                dateStr = new Date(dateStr).toLocaleDateString();
+                            }
+
+                            const selectedClass = (index === selectedRowIndex) ? " class=\"selected\"" : "";
+                            html += "<tr data-index=\"" + index + "\"" + selectedClass + ">" +
+                                "<td>" + row.type + "</td>" +
+                                "<td>" + row.weight.toLocaleString() + "</td>" +
+                                "<td>" + row.store + "</td>" +
+                                "<td>" + dateStr + "</td>" +
+                                "</tr>";
+                        });
+                        tbody.innerHTML = html;
+
+                        // Add click handlers to rows
+                        tbody.querySelectorAll("tr[data-index]").forEach(function(tr) {
+                            tr.addEventListener("click", function() {
+                                const index = parseInt(this.getAttribute("data-index"));
+                                selectRow(index);
+                            });
+                        });
+                    }
+
+                    // Function to clear selection
+                    function clearSelection() {
+                        highlightLayer.removeAll();
+                        if (pulseAnimation) {
+                            clearInterval(pulseAnimation);
+                            pulseAnimation = null;
+                        }
+                        selectedRowIndex = null;
+                        document.querySelectorAll("#dataTableBody tr").forEach(function(tr) {
+                            tr.classList.remove("selected");
+                        });
+                        document.getElementById("clearSelectionBtn").classList.remove("visible");
+                    }
+
+                    // Function to select a row and highlight on map
+                    function selectRow(index) {
+                        // Clear previous selection
+                        highlightLayer.removeAll();
+                        if (pulseAnimation) {
+                            clearInterval(pulseAnimation);
+                            pulseAnimation = null;
+                        }
+
+                        // Update selected row styling
+                        document.querySelectorAll("#dataTableBody tr").forEach(function(tr) {
+                            tr.classList.remove("selected");
+                        });
+
+                        // If clicking same row, deselect
+                        if (selectedRowIndex === index) {
+                            selectedRowIndex = null;
+                            document.getElementById("clearSelectionBtn").classList.remove("visible");
+                            return;
+                        }
+
+                        selectedRowIndex = index;
+                        const row = currentTableData[index];
+
+                        // Show clear button
+                        document.getElementById("clearSelectionBtn").classList.add("visible");
+
+                        // Highlight selected row
+                        const selectedTr = document.querySelector("#dataTableBody tr[data-index=\"" + index + "\"]");
+                        if (selectedTr) {
+                            selectedTr.classList.add("selected");
+                        }
+
+                        // Add highlight graphic on map
+                        if (row.geometry) {
+                            // Create pulsing highlight
+                            let pulseSize = 20;
+                            let growing = true;
+
+                            function addPulseGraphic(size) {
+                                highlightLayer.removeAll();
+
+                                // Outer glow
+                                const outerGraphic = new Graphic({
+                                    geometry: row.geometry,
+                                    symbol: {
+                                        type: "simple-marker",
+                                        color: [0, 121, 193, 0.3],
+                                        size: size + 15,
+                                        outline: {
+                                            color: [0, 121, 193, 0.5],
+                                            width: 3
+                                        }
+                                    }
+                                });
+
+                                // Inner highlight
+                                const innerGraphic = new Graphic({
+                                    geometry: row.geometry,
+                                    symbol: {
+                                        type: "simple-marker",
+                                        color: [0, 121, 193, 0.8],
+                                        size: 12,
+                                        outline: {
+                                            color: [255, 255, 255, 1],
+                                            width: 2
+                                        }
+                                    }
+                                });
+
+                                highlightLayer.addMany([outerGraphic, innerGraphic]);
+                            }
+
+                            // Initial graphic
+                            addPulseGraphic(pulseSize);
+
+                            // Animate pulse
+                            pulseAnimation = setInterval(function() {
+                                if (growing) {
+                                    pulseSize += 2;
+                                    if (pulseSize >= 35) growing = false;
+                                } else {
+                                    pulseSize -= 2;
+                                    if (pulseSize <= 20) growing = true;
+                                }
+                                addPulseGraphic(pulseSize);
+                            }, 100);
+
+                            // Zoom to feature
+                            view.goTo({
+                                target: row.geometry,
+                                zoom: 15
+                            }, {
+                                duration: 500
+                            });
+                        }
                     }
 
                     // Function to query and sum e-waste values
                     function updateEwasteStats(timeExtent) {
-                        if (!ewasteLayer || !ewasteFieldName) return;
+                        if (!geoTraceLayer || !ewasteFieldName) return;
 
-                        const query = ewasteLayer.createQuery();
+                        const query = geoTraceLayer.createQuery();
                         query.where = "1=1";
-                        query.outFields = storeFieldName ? [ewasteFieldName, storeFieldName] : [ewasteFieldName];
-                        query.returnGeometry = false;
+                        query.outFields = ["*"]; // Get all fields for table
+                        query.returnGeometry = true; // Include geometry for map highlighting
 
                         if (timeExtent) {
                             query.timeExtent = timeExtent;
                         }
 
-                        ewasteLayer.queryFeatures(query).then(function(result) {
+                        geoTraceLayer.queryFeatures(query).then(function(result) {
+                            console.log("=== Query Results ===");
+                            console.log("Features returned:", result.features.length);
+                            if (result.features.length > 0) {
+                                console.log("First feature attributes:", result.features[0].attributes);
+                            }
+
                             let total = 0;
                             const storeData = {};
+                            const tableRows = [];
 
                             result.features.forEach(function(feature) {
-                                const value = feature.attributes[ewasteFieldName];
+                                const attrs = feature.attributes;
+                                const value = attrs[ewasteFieldName];
                                 if (value && !isNaN(value)) {
                                     total += value;
 
-                                    // Aggregate by store
+                                    // Aggregate by item type
                                     if (storeFieldName) {
-                                        const store = feature.attributes[storeFieldName] || "Unknown";
-                                        if (!storeData[store]) {
-                                            storeData[store] = 0;
+                                        const itemType = attrs[storeFieldName] || "Unknown";
+                                        if (!storeData[itemType]) {
+                                            storeData[itemType] = 0;
                                         }
-                                        storeData[store] += value;
+                                        storeData[itemType] += value;
                                     }
                                 }
+
+                                // Collect data for table (include geometry for highlighting)
+                                tableRows.push({
+                                    type: attrs.type || attrs.Type || "-",
+                                    weight: value || 0,
+                                    store: attrs.store || attrs.Store || attrs.StoreNumber || "-",
+                                    date: attrs.date || attrs.Date || attrs.CreatedDate || "-",
+                                    geometry: feature.geometry
+                                });
                             });
 
                             // Update total display
@@ -708,18 +1188,36 @@
 
                             // Update bar chart
                             if (ewasteChart && storeFieldName) {
-                                const stores = Object.keys(storeData).sort();
-                                const values = stores.map(function(store) {
-                                    return storeData[store];
+                                const itemTypes = Object.keys(storeData).sort();
+                                const values = itemTypes.map(function(itemType) {
+                                    return storeData[itemType];
                                 });
 
-                                ewasteChart.data.labels = stores;
+                                ewasteChart.data.labels = itemTypes;
                                 ewasteChart.data.datasets[0].data = values;
                                 ewasteChart.update();
                             }
+
+                            // Update data table
+                            updateDataTable(tableRows);
                         }).catch(function(error) {
                             console.error("Error querying e-waste stats:", error);
                         });
+                    }
+
+                    // Function to update the data table
+                    function updateDataTable(rows) {
+                        currentTableData = rows;
+
+                        // Update record count
+                        document.getElementById("recordCount").textContent = rows.length + " records";
+
+                        // Re-apply current sort if one exists
+                        if (currentSortColumn) {
+                            sortTableData();
+                        }
+
+                        renderTable();
                     }
 
                     console.log("Map loaded successfully");
