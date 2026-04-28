@@ -6,8 +6,8 @@
     <title>GeoTrace Dashboard</title>
 
     <!-- ArcGIS Maps SDK for JavaScript -->
-    <link rel="stylesheet" href="https://js.arcgis.com/4.29/esri/themes/light/main.css">
-    <script src="https://js.arcgis.com/4.29/"></script>
+    <link rel="stylesheet" href="https://js.arcgis.com/4.30/esri/themes/light/main.css">
+    <script src="https://js.arcgis.com/4.30/"></script>
 
     <style>
         html, body {
@@ -467,7 +467,7 @@
                             <th data-sort="type">Type <span class="sort-icon">&#9650;</span></th>
                             <th data-sort="weight">Weight <span class="sort-icon">&#9650;</span></th>
                             <th data-sort="store">Store <span class="sort-icon">&#9650;</span></th>
-                            <th data-sort="date">Date <span class="sort-icon">&#9650;</span></th>
+                            <th data-sort="date">Creation Date <span class="sort-icon">&#9650;</span></th>
                         </tr>
                     </thead>
                     <tbody id="dataTableBody">
@@ -490,16 +490,36 @@
     <script>
         // Load Chart.js dynamically to avoid conflict with Dojo AMD loader
         function loadChartJS(callback) {
-            // Temporarily hide AMD define to prevent Chart.js from using it
+            // Check if Chart.js is already loaded
+            if (window.Chart) {
+                callback();
+                return;
+            }
+
+            // Store and temporarily remove AMD define
             var originalDefine = window.define;
+            var originalRequire = window.require;
             window.define = undefined;
+            window.require = undefined;
 
             var script = document.createElement("script");
-            script.src = "https://cdn.jsdelivr.net/npm/chart.js";
+            // Use the UMD build which handles module systems better
+            script.src = "https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js";
             script.onload = function() {
-                // Restore AMD define
+                // Restore AMD loader immediately
                 window.define = originalDefine;
-                callback();
+                window.require = originalRequire;
+
+                // Small delay to ensure Chart.js is fully initialized
+                setTimeout(function() {
+                    callback();
+                }, 50);
+            };
+            script.onerror = function() {
+                // Restore AMD loader on error too
+                window.define = originalDefine;
+                window.require = originalRequire;
+                console.error("Failed to load Chart.js");
             };
             document.head.appendChild(script);
         }
@@ -508,6 +528,7 @@
             "esri/WebMap",
             "esri/views/MapView",
             "esri/widgets/LayerList",
+            "esri/widgets/Legend",
             "esri/widgets/Expand",
             "esri/widgets/TimeSlider",
             "esri/widgets/BasemapGallery",
@@ -516,7 +537,7 @@
             "esri/portal/Portal",
             "esri/layers/GraphicsLayer",
             "esri/Graphic"
-        ], function(WebMap, MapView, LayerList, Expand, TimeSlider, BasemapGallery, OAuthInfo, IdentityManager, Portal, GraphicsLayer, Graphic) {
+        ], function(WebMap, MapView, LayerList, Legend, Expand, TimeSlider, BasemapGallery, OAuthInfo, IdentityManager, Portal, GraphicsLayer, Graphic) {
 
             // Configuration
             const CONFIG = {
@@ -686,27 +707,127 @@
                             geoTraceLayer.useViewTime = true;
                             console.log("GeoTrace Item layer timeInfo:", geoTraceLayer.timeInfo);
 
-                            // Use layer's timeInfo fullTimeExtent if available, otherwise use default
-                            let fullExtent = geoTraceLayer.timeInfo && geoTraceLayer.timeInfo.fullTimeExtent;
-
-                            if (fullExtent) {
-                                timeSlider = new TimeSlider({
-                                    container: document.createElement("div"),
-                                    view: view,
-                                    mode: "time-window",
-                                    fullTimeExtent: fullExtent,
-                                    playRate: 1000,
-                                    stops: {
-                                        interval: {
-                                            value: 1,
-                                            unit: "days"
-                                        }
-                                    }
-                                });
-                                console.log("TimeSlider configured with layer time extent:", fullExtent.start, "to", fullExtent.end);
+                            // Find the date field name
+                            let dateFieldName = null;
+                            if (geoTraceLayer.timeInfo && geoTraceLayer.timeInfo.startField) {
+                                dateFieldName = geoTraceLayer.timeInfo.startField;
                             } else {
-                                // Fallback: use default date range
-                                console.log("No timeInfo on layer, using default time extent");
+                                // Try to find a date field
+                                const dateField = geoTraceLayer.fields.find(function(f) {
+                                    return f.type === "date" || f.name.toLowerCase().includes("date");
+                                });
+                                if (dateField) {
+                                    dateFieldName = dateField.name;
+                                }
+                            }
+                            console.log("Using date field:", dateFieldName);
+
+                            // Set timeInfo on the layer if not already configured
+                            // This is required for the layer to filter visually with the TimeSlider
+                            if (dateFieldName && !geoTraceLayer.timeInfo) {
+                                geoTraceLayer.timeInfo = {
+                                    startField: dateFieldName
+                                };
+                                console.log("Set layer timeInfo to use field:", dateFieldName);
+                            }
+
+                            // Query the data to find the actual date range
+                            const statsQuery = geoTraceLayer.createQuery();
+                            statsQuery.where = "1=1";
+
+                            if (dateFieldName) {
+                                statsQuery.outStatistics = [
+                                    {
+                                        statisticType: "min",
+                                        onStatisticField: dateFieldName,
+                                        outStatisticFieldName: "minDate"
+                                    },
+                                    {
+                                        statisticType: "max",
+                                        onStatisticField: dateFieldName,
+                                        outStatisticFieldName: "maxDate"
+                                    }
+                                ];
+
+                                geoTraceLayer.queryFeatures(statsQuery).then(function(result) {
+                                    let minDate = null;
+                                    let maxDate = null;
+
+                                    if (result.features.length > 0) {
+                                        const attrs = result.features[0].attributes;
+                                        minDate = attrs.minDate ? new Date(attrs.minDate) : null;
+                                        maxDate = attrs.maxDate ? new Date(attrs.maxDate) : null;
+                                        console.log("Data date range:", minDate, "to", maxDate);
+                                    }
+
+                                    // Use queried dates or fallback
+                                    if (minDate && maxDate) {
+                                        timeSlider = new TimeSlider({
+                                            container: document.createElement("div"),
+                                            view: view,
+                                            mode: "time-window",
+                                            fullTimeExtent: {
+                                                start: minDate,
+                                                end: maxDate
+                                            },
+                                            playRate: 1000,
+                                            stops: {
+                                                interval: {
+                                                    value: 1,
+                                                    unit: "days"
+                                                }
+                                            }
+                                        });
+                                        console.log("TimeSlider configured with data date range:", minDate, "to", maxDate);
+                                    } else {
+                                        // Fallback to layer timeInfo or default
+                                        let fullExtent = geoTraceLayer.timeInfo && geoTraceLayer.timeInfo.fullTimeExtent;
+                                        timeSlider = new TimeSlider({
+                                            container: document.createElement("div"),
+                                            view: view,
+                                            mode: "time-window",
+                                            fullTimeExtent: fullExtent || {
+                                                start: new Date(2025, 0, 1),
+                                                end: new Date(2025, 11, 31)
+                                            },
+                                            playRate: 1000,
+                                            stops: {
+                                                interval: {
+                                                    value: 1,
+                                                    unit: "days"
+                                                }
+                                            }
+                                        });
+                                    }
+                                    view.ui.add(timeSlider, "bottom-leading");
+
+                                    // Now set up stats tracking after timeSlider is ready
+                                    setupStatsTracking();
+                                }).catch(function(err) {
+                                    console.error("Error querying date range:", err);
+                                    // Fallback
+                                    timeSlider = new TimeSlider({
+                                        container: document.createElement("div"),
+                                        view: view,
+                                        mode: "time-window",
+                                        fullTimeExtent: {
+                                            start: new Date(2025, 0, 1),
+                                            end: new Date(2025, 11, 31)
+                                        },
+                                        playRate: 1000,
+                                        stops: {
+                                            interval: {
+                                                value: 1,
+                                                unit: "days"
+                                            }
+                                        }
+                                    });
+                                    view.ui.add(timeSlider, "bottom-leading");
+                                    setupStatsTracking();
+                                });
+                            } else {
+                                // No date field found, use default
+                                console.log("No date field found, using default time extent");
                                 timeSlider = new TimeSlider({
                                     container: document.createElement("div"),
                                     view: view,
@@ -723,8 +844,9 @@
                                         }
                                     }
                                 });
+                                view.ui.add(timeSlider, "bottom-leading");
+                                setupStatsTracking();
                             }
-                            view.ui.add(timeSlider, "bottom-leading");
                         });
                     } else {
                         // Fallback if GeoTrace Item layer not found
@@ -746,17 +868,21 @@
                             }
                         });
                         view.ui.add(timeSlider, "bottom-leading");
+                        setupStatsTracking();
                     }
 
-                    // Set up stats tracking using GeoTraceItem layer
+                    // Stats tracking variables (declared at higher scope for access by updateEwasteStats)
                     const statsPanel = document.getElementById("statsPanel");
                     const ewasteTotalEl = document.getElementById("ewasteTotal");
                     const chartPanel = document.getElementById("chartPanel");
                     let ewasteFieldName = null;
                     let storeFieldName = null;
                     let ewasteChart = null;
+                    let itemTypeColors = {}; // Map of item type to color from renderer
 
-                    // Log all layers to help identify the correct one
+                    // Function to set up stats tracking (called after timeSlider is ready)
+                    function setupStatsTracking() {
+                        // Log all layers to help identify the correct one
                     console.log("=== Available Layers ===");
                     webMap.layers.forEach(function(layer) {
                         console.log("Layer:", layer.title, "| Type:", layer.type);
@@ -779,6 +905,26 @@
                             console.log("Using e-waste field:", ewasteFieldName);
                             console.log("Using store field:", storeFieldName);
 
+                            // Extract colors from renderer for chart
+                            const renderer = geoTraceLayer.renderer;
+                            if (renderer && renderer.type === "unique-value") {
+                                console.log("Extracting colors from UniqueValueRenderer");
+                                renderer.uniqueValueInfos.forEach(function(info) {
+                                    const value = info.value;
+                                    const symbol = info.symbol;
+                                    if (symbol && symbol.color) {
+                                        const c = symbol.color;
+                                        itemTypeColors[value] = {
+                                            background: "rgba(" + c.r + "," + c.g + "," + c.b + "," + (c.a !== undefined ? c.a : 0.7) + ")",
+                                            border: "rgba(" + c.r + "," + c.g + "," + c.b + ",1)"
+                                        };
+                                        console.log("Color for", value, ":", itemTypeColors[value].background);
+                                    }
+                                });
+                            } else if (renderer) {
+                                console.log("Renderer type:", renderer.type);
+                            }
+
                             if (ewasteFieldName) {
                                 statsPanel.style.display = "block";
 
@@ -794,8 +940,8 @@
                                                 datasets: [{
                                                     label: "Weight",
                                                     data: [],
-                                                    backgroundColor: "rgba(0, 121, 193, 0.7)",
-                                                    borderColor: "rgba(0, 121, 193, 1)",
+                                                    backgroundColor: [],
+                                                    borderColor: [],
                                                     borderWidth: 1
                                                 }]
                                             },
@@ -865,6 +1011,7 @@
                     } else {
                         console.warn("GeoTraceItem layer not found for chart");
                     }
+                    } // End of setupStatsTracking function
 
                     // Table tray toggle
                     document.getElementById("trayToggle").addEventListener("click", function(e) {
@@ -892,13 +1039,13 @@
                         }
 
                         // CSV header
-                        let csv = "Type,Weight,Store,Date\n";
+                        let csv = "Type,Weight,Store,Creation Date\n";
 
                         // Add rows
                         currentTableData.forEach(function(row) {
                             let dateStr = row.date;
                             if (typeof dateStr === "number") {
-                                dateStr = new Date(dateStr).toLocaleDateString();
+                                dateStr = new Date(dateStr).toLocaleString();
                             }
 
                             // Escape values that might contain commas or quotes
@@ -999,7 +1146,7 @@
                         currentTableData.forEach(function(row, index) {
                             let dateStr = row.date;
                             if (typeof dateStr === "number") {
-                                dateStr = new Date(dateStr).toLocaleDateString();
+                                dateStr = new Date(dateStr).toLocaleString();
                             }
 
                             const selectedClass = (index === selectedRowIndex) ? " class=\"selected\"" : "";
@@ -1178,7 +1325,7 @@
                                     type: attrs.type || attrs.Type || "-",
                                     weight: value || 0,
                                     store: attrs.store || attrs.Store || attrs.StoreNumber || "-",
-                                    date: attrs.date || attrs.Date || attrs.CreatedDate || "-",
+                                    date: attrs.CreationDate || attrs.creationDate || attrs.date || attrs.Date || attrs.CreatedDate || "-",
                                     geometry: feature.geometry
                                 });
                             });
@@ -1193,8 +1340,20 @@
                                     return storeData[itemType];
                                 });
 
+                                // Get colors for each item type from renderer
+                                const defaultBg = "rgba(0, 121, 193, 0.7)";
+                                const defaultBorder = "rgba(0, 121, 193, 1)";
+                                const bgColors = itemTypes.map(function(itemType) {
+                                    return itemTypeColors[itemType] ? itemTypeColors[itemType].background : defaultBg;
+                                });
+                                const borderColors = itemTypes.map(function(itemType) {
+                                    return itemTypeColors[itemType] ? itemTypeColors[itemType].border : defaultBorder;
+                                });
+
                                 ewasteChart.data.labels = itemTypes;
                                 ewasteChart.data.datasets[0].data = values;
+                                ewasteChart.data.datasets[0].backgroundColor = bgColors;
+                                ewasteChart.data.datasets[0].borderColor = borderColors;
                                 ewasteChart.update();
                             }
 
