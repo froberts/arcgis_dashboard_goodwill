@@ -194,6 +194,38 @@
             margin-top: 4px;
         }
 
+        /* Count Panel - positioned below stats panel */
+        #countPanel {
+            position: absolute;
+            top: 215px;
+            left: 15px;
+            background: white;
+            padding: 15px 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            z-index: 50;
+            min-width: 180px;
+        }
+
+        #countPanel h3 {
+            margin: 0 0 8px 0;
+            font-size: 0.875rem;
+            color: #666;
+            font-weight: 500;
+        }
+
+        #countPanel .stat-value {
+            font-size: 1.75rem;
+            font-weight: 600;
+            color: #2b2b2b;
+        }
+
+        #countPanel .stat-label {
+            font-size: 0.75rem;
+            color: #888;
+            margin-top: 4px;
+        }
+
         /* Bar chart panel */
         #chartPanel {
             position: absolute;
@@ -438,6 +470,12 @@
         <div id="statsPanel" style="display: none;">
             <h3>Total Weight</h3>
             <div class="stat-value" id="ewasteTotal">0</div>
+            <div class="stat-label">for selected time period</div>
+        </div>
+        <!-- Count Stats Panel -->
+        <div id="countPanel" style="display: none;">
+            <h3>Total Mutts</h3>
+            <div class="stat-value" id="muttsTotal">0</div>
             <div class="stat-label">for selected time period</div>
         </div>
         <!-- Bar Chart Panel -->
@@ -874,6 +912,8 @@
                     // Stats tracking variables (declared at higher scope for access by updateEwasteStats)
                     const statsPanel = document.getElementById("statsPanel");
                     const ewasteTotalEl = document.getElementById("ewasteTotal");
+                    const countPanel = document.getElementById("countPanel");
+                    const muttsTotalEl = document.getElementById("muttsTotal");
                     const chartPanel = document.getElementById("chartPanel");
                     let ewasteFieldName = null;
                     let storeFieldName = null;
@@ -905,28 +945,27 @@
                             console.log("Using e-waste field:", ewasteFieldName);
                             console.log("Using store field:", storeFieldName);
 
-                            // Extract colors from renderer for chart
-                            const renderer = geoTraceLayer.renderer;
-                            if (renderer && renderer.type === "unique-value") {
-                                console.log("Extracting colors from UniqueValueRenderer");
-                                renderer.uniqueValueInfos.forEach(function(info) {
-                                    const value = info.value;
-                                    const symbol = info.symbol;
-                                    if (symbol && symbol.color) {
-                                        const c = symbol.color;
-                                        itemTypeColors[value] = {
-                                            background: "rgba(" + c.r + "," + c.g + "," + c.b + "," + (c.a !== undefined ? c.a : 0.7) + ")",
-                                            border: "rgba(" + c.r + "," + c.g + "," + c.b + ",1)"
-                                        };
-                                        console.log("Color for", value, ":", itemTypeColors[value].background);
-                                    }
-                                });
-                            } else if (renderer) {
-                                console.log("Renderer type:", renderer.type);
-                            }
+                            // Define colors for each item type (matching map symbology)
+                            itemTypeColors = {
+                                "clothes": { background: "rgba(85, 85, 85, 0.8)", border: "rgba(85, 85, 85, 1)" },           // dark gray
+                                "Clothes": { background: "rgba(85, 85, 85, 0.8)", border: "rgba(85, 85, 85, 1)" },
+                                "shoes": { background: "rgba(128, 0, 128, 0.8)", border: "rgba(128, 0, 128, 1)" },           // purple
+                                "Shoes": { background: "rgba(128, 0, 128, 0.8)", border: "rgba(128, 0, 128, 1)" },
+                                "books": { background: "rgba(135, 206, 250, 0.8)", border: "rgba(135, 206, 250, 1)" },       // light blue
+                                "Books": { background: "rgba(135, 206, 250, 0.8)", border: "rgba(135, 206, 250, 1)" },
+                                "e-waste": { background: "rgba(139, 69, 19, 0.8)", border: "rgba(139, 69, 19, 1)" },         // brown
+                                "E-waste": { background: "rgba(139, 69, 19, 0.8)", border: "rgba(139, 69, 19, 1)" },
+                                "E-Waste": { background: "rgba(139, 69, 19, 0.8)", border: "rgba(139, 69, 19, 1)" },
+                                "toys": { background: "rgba(255, 165, 0, 0.8)", border: "rgba(255, 165, 0, 1)" },            // orange
+                                "Toys": { background: "rgba(255, 165, 0, 0.8)", border: "rgba(255, 165, 0, 1)" },
+                                "plastic": { background: "rgba(50, 205, 50, 0.8)", border: "rgba(50, 205, 50, 1)" },         // lime green
+                                "Plastic": { background: "rgba(50, 205, 50, 0.8)", border: "rgba(50, 205, 50, 1)" }
+                            };
+                            console.log("Item type colors configured:", Object.keys(itemTypeColors));
 
                             if (ewasteFieldName) {
                                 statsPanel.style.display = "block";
+                                countPanel.style.display = "block";
 
                                 // Initialize bar chart if store field exists
                                 if (storeFieldName) {
@@ -1284,14 +1323,52 @@
                     function updateEwasteStats(timeExtent) {
                         if (!geoTraceLayer || !ewasteFieldName) return;
 
+                        // Find the date field name
+                        let dateFieldName = null;
+                        if (geoTraceLayer.timeInfo && geoTraceLayer.timeInfo.startField) {
+                            dateFieldName = geoTraceLayer.timeInfo.startField;
+                        } else {
+                            const dateField = geoTraceLayer.fields.find(function(f) {
+                                return f.type === "date" || f.name.toLowerCase().includes("date");
+                            });
+                            if (dateField) {
+                                dateFieldName = dateField.name;
+                            }
+                        }
+
                         const query = geoTraceLayer.createQuery();
-                        query.where = "1=1";
                         query.outFields = ["*"]; // Get all fields for table
                         query.returnGeometry = true; // Include geometry for map highlighting
 
-                        if (timeExtent) {
-                            query.timeExtent = timeExtent;
+                        // Build where clause with time filter
+                        let whereClause = "1=1";
+                        if (timeExtent && dateFieldName) {
+                            // Format dates for ArcGIS query (use TIMESTAMP for feature services)
+                            const startDate = timeExtent.start;
+                            const endDate = timeExtent.end;
+
+                            // Try timestamp format: TIMESTAMP 'YYYY-MM-DD HH:MM:SS'
+                            const formatDate = function(d) {
+                                return d.getFullYear() + "-" +
+                                    String(d.getMonth() + 1).padStart(2, "0") + "-" +
+                                    String(d.getDate()).padStart(2, "0") + " " +
+                                    String(d.getHours()).padStart(2, "0") + ":" +
+                                    String(d.getMinutes()).padStart(2, "0") + ":" +
+                                    String(d.getSeconds()).padStart(2, "0");
+                            };
+
+                            whereClause = dateFieldName + " >= TIMESTAMP '" + formatDate(startDate) + "' AND " +
+                                         dateFieldName + " <= TIMESTAMP '" + formatDate(endDate) + "'";
+                            console.log("Time filter applied:", whereClause);
+                            console.log("Date range:", startDate, "to", endDate);
+                        } else {
+                            console.log("No time filter - showing all data");
                         }
+
+                        query.where = whereClause;
+
+                        // Also update the layer's definitionExpression to filter map display
+                        geoTraceLayer.definitionExpression = whereClause;
 
                         geoTraceLayer.queryFeatures(query).then(function(result) {
                             console.log("=== Query Results ===");
@@ -1332,6 +1409,9 @@
 
                             // Update total display
                             ewasteTotalEl.textContent = total.toLocaleString();
+
+                            // Update count display
+                            muttsTotalEl.textContent = result.features.length.toLocaleString();
 
                             // Update bar chart
                             if (ewasteChart && storeFieldName) {
