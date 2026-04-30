@@ -197,7 +197,7 @@
         /* Count Panel - positioned below stats panel */
         #countPanel {
             position: absolute;
-            top: 215px;
+            top: 235px;
             left: 15px;
             background: white;
             padding: 15px 20px;
@@ -788,7 +788,7 @@
                             }
                         });
 
-                        const radius = 60; // Pixels to disperse
+                        const radius = 35; // Pixels to disperse
                         const angleStep = (2 * Math.PI) / features.length;
 
                         features.forEach(function(feature, index) {
@@ -805,27 +805,36 @@
                             // Get the original feature's attributes and symbol color
                             const attrs = feature.attributes;
                             const itemType = attrs.type || attrs.Type || "Unknown";
-                            const typeColors = itemTypeColors[itemType] || { background: "rgba(0,121,193,0.8)", border: "rgba(0,121,193,1)" };
+
+                            // Look up color - try exact match, then lowercase
+                            let typeColors = itemTypeColors[itemType];
+                            if (!typeColors) {
+                                typeColors = itemTypeColors[itemType.toLowerCase()];
+                            }
+                            if (!typeColors) {
+                                // Default blue if no match
+                                typeColors = { background: "rgba(0,121,193,0.8)", border: "rgba(0,121,193,1)" };
+                            }
 
                             // Parse the color from rgba string
                             const colorMatch = typeColors.background.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
                             const markerColor = colorMatch ? [parseInt(colorMatch[1]), parseInt(colorMatch[2]), parseInt(colorMatch[3]), 0.9] : [0, 121, 193, 0.9];
 
-                            // Draw line from dispersed point to original location
+                            // Draw leader line from dispersed point to center
                             const lineGraphic = new Graphic({
                                 geometry: {
                                     type: "polyline",
                                     paths: [[
-                                        [offsetMapPoint.longitude, offsetMapPoint.latitude],
-                                        [feature.geometry.longitude, feature.geometry.latitude]
+                                        [offsetMapPoint.x, offsetMapPoint.y],
+                                        [feature.geometry.x, feature.geometry.y]
                                     ]],
                                     spatialReference: view.spatialReference
                                 },
                                 symbol: {
                                     type: "simple-line",
-                                    color: [100, 100, 100, 0.7],
-                                    width: 2,
-                                    style: "short-dash"
+                                    color: [50, 50, 50, 0.9],
+                                    width: 1,
+                                    style: "solid"
                                 },
                                 attributes: { isDisperseLine: true }
                             });
@@ -851,15 +860,9 @@
                             const weightVal = attrs.weight !== undefined ? attrs.weight : "N/A";
                             const storeVal = attrs.store || attrs.Store || attrs.StoreNumber || "N/A";
                             const dateVal = attrs.CreationDate || attrs.creationDate || attrs.date || "N/A";
-                            const formattedDate = (typeof dateVal === "number") ? new Date(dateVal).toLocaleDateString() : dateVal;
-
-                            const popupContent =
-                                "<div style='padding: 5px;'>" +
-                                "<p><b>Type:</b> " + itemType + "</p>" +
-                                "<p><b>Weight:</b> " + weightVal + "</p>" +
-                                "<p><b>Store:</b> " + storeVal + "</p>" +
-                                "<p><b>Date:</b> " + formattedDate + "</p>" +
-                                "</div>";
+                            const formattedDate = (typeof dateVal === "number") ? new Date(dateVal).toLocaleString() : dateVal;
+                            const qrCodeVal = attrs.qr_code || attrs.QRCode || attrs.qrcode || attrs.QR_Code || attrs.qr || "N/A";
+                            const objectId = attrs.OBJECTID || attrs.ObjectID || attrs.objectid || attrs.FID;
 
                             // Create dispersed marker (add last so it's on top)
                             const dispersedGraphic = new Graphic({
@@ -878,11 +881,60 @@
                                     displayType: itemType,
                                     displayWeight: weightVal,
                                     displayStore: storeVal,
-                                    displayDate: formattedDate
+                                    displayDate: formattedDate,
+                                    displayQRCode: qrCodeVal,
+                                    originalObjectId: objectId
                                 }),
                                 popupTemplate: {
                                     title: itemType,
-                                    content: popupContent
+                                    content: function(target) {
+                                        // Build base content
+                                        var div = document.createElement("div");
+                                        div.style.padding = "5px";
+                                        div.innerHTML =
+                                            "<p><b>Type:</b> " + target.graphic.attributes.displayType + "</p>" +
+                                            "<p><b>Weight:</b> " + target.graphic.attributes.displayWeight + "</p>" +
+                                            "<p><b>Store:</b> " + target.graphic.attributes.displayStore + "</p>" +
+                                            "<p><b>Date/Time:</b> " + target.graphic.attributes.displayDate + "</p>" +
+                                            "<div id='attachments-container'><p><i>Loading attachments...</i></p></div>";
+
+                                        // Query attachments
+                                        var oid = target.graphic.attributes.originalObjectId;
+                                        if (oid && geoTraceLayer && geoTraceLayer.capabilities &&
+                                            geoTraceLayer.capabilities.data && geoTraceLayer.capabilities.data.supportsAttachment) {
+                                            geoTraceLayer.queryAttachments({
+                                                objectIds: [oid]
+                                            }).then(function(attachmentsByOid) {
+                                                var container = div.querySelector("#attachments-container");
+                                                var attachments = attachmentsByOid[oid];
+                                                if (attachments && attachments.length > 0) {
+                                                    var html = "<p><b>Attachments:</b></p><div style='display: flex; flex-wrap: wrap; gap: 5px;'>";
+                                                    attachments.forEach(function(att) {
+                                                        if (att.contentType && att.contentType.startsWith("image/")) {
+                                                            html += "<a href='" + att.url + "' target='_blank'>" +
+                                                                    "<img src='" + att.url + "' style='max-width: 150px; max-height: 150px; border: 1px solid #ccc; border-radius: 4px;' />" +
+                                                                    "</a>";
+                                                        } else {
+                                                            html += "<a href='" + att.url + "' target='_blank'>" + att.name + "</a><br>";
+                                                        }
+                                                    });
+                                                    html += "</div>";
+                                                    container.innerHTML = html;
+                                                } else {
+                                                    container.innerHTML = "<p><i>No attachments</i></p>";
+                                                }
+                                            }).catch(function(err) {
+                                                console.error("Error querying attachments:", err);
+                                                var container = div.querySelector("#attachments-container");
+                                                container.innerHTML = "<p><i>Could not load attachments</i></p>";
+                                            });
+                                        } else {
+                                            var container = div.querySelector("#attachments-container");
+                                            container.innerHTML = "";
+                                        }
+
+                                        return div;
+                                    }
                                 }
                             });
                             disperseLayer.add(dispersedGraphic);
