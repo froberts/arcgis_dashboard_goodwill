@@ -691,8 +691,266 @@
                     });
                     webMap.add(highlightLayer);
 
+                    // Create a graphics layer for dispersed markers
+                    const disperseLayer = new GraphicsLayer({
+                        title: "Dispersed Markers"
+                    });
+                    webMap.add(disperseLayer);
+
+                    // Create a graphics layer for overlap badges
+                    const badgeLayer = new GraphicsLayer({
+                        title: "Overlap Badges"
+                    });
+                    webMap.add(badgeLayer);
+
                     let pulseAnimation = null;
                     let selectedRowIndex = null;
+                    let dispersedFeatures = []; // Track currently dispersed features
+                    let isDispersed = false; // Track if we're in dispersed state
+
+                    // Function to find and display overlap badges
+                    function updateOverlapBadges() {
+                        badgeLayer.removeAll();
+
+                        if (!geoTraceLayer) return;
+
+                        // Query all visible features
+                        const query = geoTraceLayer.createQuery();
+                        query.where = geoTraceLayer.definitionExpression || "1=1";
+                        query.returnGeometry = true;
+                        query.outFields = ["*"];
+
+                        geoTraceLayer.queryFeatures(query).then(function(result) {
+                            // Group features by location (rounded to avoid floating point issues)
+                            const locationGroups = {};
+                            const precision = 6; // Decimal places for grouping
+
+                            result.features.forEach(function(feature) {
+                                if (!feature.geometry) return;
+                                const key = feature.geometry.longitude.toFixed(precision) + "," + feature.geometry.latitude.toFixed(precision);
+                                if (!locationGroups[key]) {
+                                    locationGroups[key] = [];
+                                }
+                                locationGroups[key].push(feature);
+                            });
+
+                            // Add badges for locations with multiple features
+                            Object.keys(locationGroups).forEach(function(key) {
+                                const features = locationGroups[key];
+                                if (features.length > 1) {
+                                    const firstFeature = features[0];
+
+                                    // Create badge with count
+                                    const badge = new Graphic({
+                                        geometry: firstFeature.geometry,
+                                        symbol: {
+                                            type: "text",
+                                            text: features.length.toString(),
+                                            color: "white",
+                                            haloColor: [220, 50, 50, 1],
+                                            haloSize: "10px",
+                                            font: {
+                                                size: 10,
+                                                weight: "bold"
+                                            },
+                                            yoffset: -12
+                                        },
+                                        attributes: {
+                                            isBadge: true,
+                                            overlapCount: features.length,
+                                            groupKey: key
+                                        }
+                                    });
+                                    badgeLayer.add(badge);
+                                }
+                            });
+
+                            console.log("Overlap badges updated:", Object.keys(locationGroups).filter(function(k) { return locationGroups[k].length > 1; }).length, "clusters found");
+                        });
+                    }
+
+                    // Function to disperse overlapping points
+                    function dispersePoints(centerPoint, features, mapPoint) {
+                        // Clear any existing dispersed graphics
+                        collapseDispersedPoints();
+
+                        if (features.length <= 1) return;
+
+                        dispersedFeatures = features;
+                        isDispersed = true;
+
+                        // Hide the original points' badge
+                        badgeLayer.graphics.forEach(function(g) {
+                            if (g.geometry &&
+                                Math.abs(g.geometry.longitude - mapPoint.longitude) < 0.0001 &&
+                                Math.abs(g.geometry.latitude - mapPoint.latitude) < 0.0001) {
+                                g.visible = false;
+                            }
+                        });
+
+                        const radius = 60; // Pixels to disperse
+                        const angleStep = (2 * Math.PI) / features.length;
+
+                        features.forEach(function(feature, index) {
+                            const angle = angleStep * index - Math.PI / 2; // Start from top
+
+                            // Calculate offset in screen coordinates, then convert to map coordinates
+                            const screenPoint = view.toScreen(mapPoint);
+                            const offsetScreen = {
+                                x: screenPoint.x + radius * Math.cos(angle),
+                                y: screenPoint.y + radius * Math.sin(angle)
+                            };
+                            const offsetMapPoint = view.toMap(offsetScreen);
+
+                            // Get the original feature's attributes and symbol color
+                            const attrs = feature.attributes;
+                            const itemType = attrs.type || attrs.Type || "Unknown";
+                            const typeColors = itemTypeColors[itemType] || { background: "rgba(0,121,193,0.8)", border: "rgba(0,121,193,1)" };
+
+                            // Parse the color from rgba string
+                            const colorMatch = typeColors.background.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+                            const markerColor = colorMatch ? [parseInt(colorMatch[1]), parseInt(colorMatch[2]), parseInt(colorMatch[3]), 0.9] : [0, 121, 193, 0.9];
+
+                            // Draw line from dispersed point to original location
+                            const lineGraphic = new Graphic({
+                                geometry: {
+                                    type: "polyline",
+                                    paths: [[
+                                        [offsetMapPoint.longitude, offsetMapPoint.latitude],
+                                        [feature.geometry.longitude, feature.geometry.latitude]
+                                    ]],
+                                    spatialReference: view.spatialReference
+                                },
+                                symbol: {
+                                    type: "simple-line",
+                                    color: [100, 100, 100, 0.7],
+                                    width: 2,
+                                    style: "short-dash"
+                                },
+                                attributes: { isDisperseLine: true }
+                            });
+                            disperseLayer.add(lineGraphic);
+
+                            // Draw small dot at original location
+                            const originDot = new Graphic({
+                                geometry: feature.geometry,
+                                symbol: {
+                                    type: "simple-marker",
+                                    color: [60, 60, 60, 1],
+                                    size: 8,
+                                    outline: {
+                                        color: [40, 40, 40, 1],
+                                        width: 1
+                                    }
+                                },
+                                attributes: { isOriginDot: true }
+                            });
+                            disperseLayer.add(originDot);
+
+                            // Build popup content with actual values
+                            const weightVal = attrs.weight !== undefined ? attrs.weight : "N/A";
+                            const storeVal = attrs.store || attrs.Store || attrs.StoreNumber || "N/A";
+                            const dateVal = attrs.CreationDate || attrs.creationDate || attrs.date || "N/A";
+                            const formattedDate = (typeof dateVal === "number") ? new Date(dateVal).toLocaleDateString() : dateVal;
+
+                            const popupContent =
+                                "<div style='padding: 5px;'>" +
+                                "<p><b>Type:</b> " + itemType + "</p>" +
+                                "<p><b>Weight:</b> " + weightVal + "</p>" +
+                                "<p><b>Store:</b> " + storeVal + "</p>" +
+                                "<p><b>Date:</b> " + formattedDate + "</p>" +
+                                "</div>";
+
+                            // Create dispersed marker (add last so it's on top)
+                            const dispersedGraphic = new Graphic({
+                                geometry: offsetMapPoint,
+                                symbol: {
+                                    type: "simple-marker",
+                                    color: markerColor,
+                                    size: 18,
+                                    outline: {
+                                        color: [255, 255, 255, 1],
+                                        width: 3
+                                    }
+                                },
+                                attributes: Object.assign({}, attrs, {
+                                    isDispersed: true,
+                                    displayType: itemType,
+                                    displayWeight: weightVal,
+                                    displayStore: storeVal,
+                                    displayDate: formattedDate
+                                }),
+                                popupTemplate: {
+                                    title: itemType,
+                                    content: popupContent
+                                }
+                            });
+                            disperseLayer.add(dispersedGraphic);
+                        });
+                    }
+
+                    // Function to collapse dispersed points
+                    function collapseDispersedPoints() {
+                        disperseLayer.removeAll();
+                        dispersedFeatures = [];
+                        isDispersed = false;
+                        // Show all badges again
+                        badgeLayer.graphics.forEach(function(g) {
+                            g.visible = true;
+                        });
+                    }
+
+                    // Click handler for dispersing overlapping points
+                    view.on("click", function(event) {
+                        view.hitTest(event).then(function(response) {
+                            // First, check if clicking on a dispersed marker
+                            const dispersedHit = response.results.find(function(result) {
+                                return result.graphic &&
+                                       result.graphic.attributes &&
+                                       result.graphic.attributes.isDispersed === true;
+                            });
+
+                            if (dispersedHit) {
+                                // Show popup for the dispersed marker
+                                view.popup.open({
+                                    features: [dispersedHit.graphic],
+                                    location: dispersedHit.graphic.geometry
+                                });
+                                return;
+                            }
+
+                            // Check if clicking on a badge or origin dot (part of disperse layer)
+                            const disperseLayerHit = response.results.find(function(result) {
+                                return result.graphic &&
+                                       (result.graphic.layer === disperseLayer || result.graphic.layer === badgeLayer);
+                            });
+
+                            // If clicking elsewhere and we have dispersed points, collapse them
+                            if (isDispersed && !disperseLayerHit) {
+                                collapseDispersedPoints();
+                            }
+
+                            // Check if clicking on the GeoTrace layer
+                            const geoTraceHits = response.results.filter(function(result) {
+                                return result.graphic &&
+                                       result.graphic.layer &&
+                                       result.graphic.layer.title &&
+                                       result.graphic.layer.title.toLowerCase().includes("geotrace");
+                            });
+
+                            if (geoTraceHits.length > 1) {
+                                // Multiple overlapping points - disperse them
+                                const features = geoTraceHits.map(function(hit) { return hit.graphic; });
+                                dispersePoints(event.screenPoint, features, event.mapPoint);
+                            } else if (geoTraceHits.length === 1 && !isDispersed) {
+                                // Single point - show normal popup
+                                view.popup.open({
+                                    features: [geoTraceHits[0].graphic],
+                                    location: event.mapPoint
+                                });
+                            }
+                        });
+                    });
 
                     // Add LayerList (Table of Contents) widget
                     const layerList = new LayerList({
@@ -1439,6 +1697,9 @@
 
                             // Update data table
                             updateDataTable(tableRows);
+
+                            // Update overlap badges
+                            updateOverlapBadges();
                         }).catch(function(error) {
                             console.error("Error querying e-waste stats:", error);
                         });
