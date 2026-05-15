@@ -1163,6 +1163,29 @@
                                 console.log("  Field:", field.name, "| Type:", field.type, "| Alias:", field.alias);
                             });
 
+                            // Add labels for store names when zoomed in past 1:24,000
+                            storeLayer.labelsVisible = true;
+                            storeLayer.labelingInfo = [{
+                                labelExpressionInfo: {
+                                    expression: "$feature.Store_name"
+                                },
+                                symbol: {
+                                    type: "text",
+                                    color: [50, 50, 50, 1],
+                                    haloColor: [255, 255, 255, 1],
+                                    haloSize: 1.5,
+                                    font: {
+                                        size: 10,
+                                        weight: "bold",
+                                        family: "Arial"
+                                    }
+                                },
+                                minScale: 24000,  // Labels appear when zoomed in past 1:24,000
+                                maxScale: 0,
+                                labelPlacement: "above-center"
+                            }];
+                            console.log("Store labels configured (visible below 1:24,000)");
+
                             // Identify store number field
                             storeNumberField = storeLayer.fields.find(function(f) {
                                 const name = f.name.toLowerCase();
