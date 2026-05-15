@@ -16,7 +16,7 @@ ArcGIS WebMap dashboard for tracking e-waste/recycling data from Goodwill stores
 
 - **Portal**: geotracesystems.maps.arcgis.com
 - **WebMap ID**: 0d0974a1106d4f4fbaf33b45b4c054d4
-- **OAuth App ID**: cGBFMBKikv3pkfVg
+- **OAuth App ID**: AsPDdwI8hCgoXNeX
 
 ## Key Files
 
