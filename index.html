@@ -70,6 +70,92 @@
             background: #005a8e;
         }
 
+        /* Store Search */
+        #storeSearch {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-left: 30px;
+        }
+
+        #storeSearch input {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 4px;
+            font-size: 0.875rem;
+            width: 200px;
+            background: #444;
+            color: white;
+        }
+
+        #storeSearch input::placeholder {
+            color: #aaa;
+        }
+
+        #storeSearch input:focus {
+            outline: 2px solid #0079c1;
+            background: #555;
+        }
+
+        #storeSearch button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+
+        #searchResults {
+            position: absolute;
+            top: 50px;
+            left: 250px;
+            background: white;
+            border-radius: 4px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            max-height: 300px;
+            overflow-y: auto;
+            z-index: 101;
+            display: none;
+            min-width: 280px;
+        }
+
+        #searchResults.visible {
+            display: block;
+        }
+
+        #searchResults .result-item {
+            padding: 10px 15px;
+            cursor: pointer;
+            border-bottom: 1px solid #eee;
+        }
+
+        #searchResults .result-item:hover {
+            background: #f5f5f5;
+        }
+
+        #searchResults .result-item:last-child {
+            border-bottom: none;
+        }
+
+        #searchResults .result-item .store-name {
+            font-weight: 500;
+            color: #2b2b2b;
+        }
+
+        #searchResults .result-item .store-number {
+            font-size: 0.8rem;
+            color: #666;
+        }
+
+        #searchResults .no-results {
+            padding: 15px;
+            text-align: center;
+            color: #888;
+        }
+
+        #searchResults .search-error {
+            padding: 15px;
+            text-align: center;
+            color: #c00;
+        }
+
         /* Map container adjusted for header */
         #mapContainer {
             position: absolute;
@@ -452,11 +538,19 @@
     <!-- Header -->
     <div id="header">
         <h1>GeoTrace Dashboard</h1>
+        <div id="storeSearch" style="display: none;">
+            <input type="text" id="storeSearchInput" placeholder="Search store # or name...">
+            <button id="storeSearchBtn">Search</button>
+            <button id="storeSearchClearBtn" style="display: none; background: #666;" title="Clear search">&#10005;</button>
+        </div>
         <div class="user-info">
             <span id="userDisplay"></span>
             <button id="signOutBtn" style="display: none;">Sign Out</button>
         </div>
     </div>
+
+    <!-- Search Results Dropdown -->
+    <div id="searchResults"></div>
 
     <!-- Map Container -->
     <div id="mapContainer">
@@ -504,12 +598,13 @@
                         <tr>
                             <th data-sort="type">Type <span class="sort-icon">&#9650;</span></th>
                             <th data-sort="weight">Weight <span class="sort-icon">&#9650;</span></th>
-                            <th data-sort="store">Store <span class="sort-icon">&#9650;</span></th>
+                            <th data-sort="storeNumber">Store # <span class="sort-icon">&#9650;</span></th>
+                            <th data-sort="storeName">Store Name <span class="sort-icon">&#9650;</span></th>
                             <th data-sort="date">Creation Date <span class="sort-icon">&#9650;</span></th>
                         </tr>
                     </thead>
                     <tbody id="dataTableBody">
-                        <tr><td colspan="4" class="no-data">Loading data...</td></tr>
+                        <tr><td colspan="5" class="no-data">Loading data...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -601,7 +696,7 @@
             console.log("Redirect URI:", redirectUri);
 
             const oAuthInfo = new OAuthInfo({
-                appId: "AsPDdwI8hCgoXNeX",
+                appId: "cGBFMBKikv3pkfVg",
                 portalUrl: CONFIG.portalUrl,
                 popup: false,
                 flowType: "implicit"
@@ -1041,6 +1136,325 @@
                     });
                     view.ui.add(basemapExpand, "top-right");
 
+                    // ========================================
+                    // STORE SEARCH FEATURE
+                    // ========================================
+
+                    // Find the Goodwill Store Type layer
+                    const storeLayer = webMap.layers.find(function(layer) {
+                        return layer.title && layer.title.toLowerCase().includes("store");
+                    });
+
+                    // Store search DOM elements
+                    const storeSearchContainer = document.getElementById("storeSearch");
+                    const storeSearchInput = document.getElementById("storeSearchInput");
+                    const storeSearchBtn = document.getElementById("storeSearchBtn");
+                    const searchResultsPanel = document.getElementById("searchResults");
+
+                    // Store field names (to be determined after layer loads)
+                    let storeNumberField = null;
+                    let storeNameField = null;
+
+                    if (storeLayer) {
+                        storeLayer.when(function() {
+                            console.log("=== Store Layer Found:", storeLayer.title, "===");
+                            console.log("Store layer fields:");
+                            storeLayer.fields.forEach(function(field) {
+                                console.log("  Field:", field.name, "| Type:", field.type, "| Alias:", field.alias);
+                            });
+
+                            // Identify store number field
+                            storeNumberField = storeLayer.fields.find(function(f) {
+                                const name = f.name.toLowerCase();
+                                return (name.includes("store") && name.includes("num")) ||
+                                       name === "storenumber" ||
+                                       name === "store_number" ||
+                                       name === "store_no" ||
+                                       name === "storeno";
+                            });
+                            if (!storeNumberField) {
+                                // Fallback: first integer field with "store" or "number" in name
+                                storeNumberField = storeLayer.fields.find(function(f) {
+                                    return (f.type === "integer" || f.type === "small-integer") &&
+                                           (f.name.toLowerCase().includes("store") || f.name.toLowerCase().includes("number"));
+                                });
+                            }
+
+                            // Identify store name field
+                            storeNameField = storeLayer.fields.find(function(f) {
+                                const name = f.name.toLowerCase();
+                                return f.type === "string" &&
+                                       (name.includes("name") || name.includes("store"));
+                            });
+
+                            console.log("Store Number Field:", storeNumberField ? storeNumberField.name : "NOT FOUND");
+                            console.log("Store Name Field:", storeNameField ? storeNameField.name : "NOT FOUND");
+
+                            // Show search UI if we found at least one searchable field
+                            if (storeNumberField || storeNameField) {
+                                storeSearchContainer.style.display = "flex";
+                            } else {
+                                console.warn("Could not find store number or name fields. Search disabled.");
+                            }
+                        });
+                    } else {
+                        console.warn("Store layer not found. Store search disabled.");
+                        console.log("Available layers:");
+                        webMap.layers.forEach(function(layer) {
+                            console.log("  -", layer.title);
+                        });
+                    }
+
+                    // Search function
+                    function searchStores(searchTerm) {
+                        if (!storeLayer || (!storeNumberField && !storeNameField)) {
+                            console.error("Store layer or fields not available");
+                            return;
+                        }
+
+                        searchTerm = searchTerm.trim();
+                        if (!searchTerm) {
+                            hideSearchResults();
+                            return;
+                        }
+
+                        // Build WHERE clause
+                        let whereClause = "";
+                        const isNumeric = /^\d+$/.test(searchTerm);
+
+                        if (isNumeric && storeNumberField) {
+                            // Exact match on store number
+                            whereClause = storeNumberField.name + " = " + searchTerm;
+                        } else if (storeNameField) {
+                            // LIKE match on store name (case-insensitive)
+                            const escapedTerm = searchTerm.replace(/'/g, "''");
+                            whereClause = "UPPER(" + storeNameField.name + ") LIKE UPPER('%" + escapedTerm + "%')";
+                        } else if (storeNumberField) {
+                            // Only have number field, try exact match
+                            whereClause = storeNumberField.name + " = " + parseInt(searchTerm);
+                        }
+
+                        if (!whereClause) {
+                            showSearchError("Cannot search with current term");
+                            return;
+                        }
+
+                        console.log("Store search WHERE:", whereClause);
+
+                        // Disable button during search
+                        storeSearchBtn.disabled = true;
+                        storeSearchBtn.textContent = "...";
+
+                        const query = storeLayer.createQuery();
+                        query.where = whereClause;
+                        query.outFields = ["*"];
+                        query.returnGeometry = true;
+
+                        storeLayer.queryFeatures(query).then(function(result) {
+                            storeSearchBtn.disabled = false;
+                            storeSearchBtn.textContent = "Search";
+
+                            console.log("Store search results:", result.features.length);
+
+                            if (result.features.length === 0) {
+                                showNoResults();
+                            } else if (result.features.length === 1) {
+                                // Single result - zoom directly
+                                hideSearchResults();
+                                zoomToStore(result.features[0]);
+                            } else {
+                                // Multiple results - show dropdown
+                                showSearchResults(result.features);
+                            }
+                        }).catch(function(error) {
+                            console.error("Store search error:", error);
+                            storeSearchBtn.disabled = false;
+                            storeSearchBtn.textContent = "Search";
+                            showSearchError("Search failed. Please try again.");
+                        });
+                    }
+
+                    // Display functions
+                    function showSearchResults(features) {
+                        let html = "";
+                        features.forEach(function(feature, index) {
+                            const attrs = feature.attributes;
+                            const name = storeNameField ? (attrs[storeNameField.name] || "Store") : "Store";
+                            const number = storeNumberField ? attrs[storeNumberField.name] : "";
+
+                            html += '<div class="result-item" data-index="' + index + '">' +
+                                    '<div class="store-name">' + escapeHtml(String(name)) + '</div>' +
+                                    (number ? '<div class="store-number">Store #' + number + '</div>' : '') +
+                                    '</div>';
+                        });
+
+                        searchResultsPanel.innerHTML = html;
+                        searchResultsPanel.classList.add("visible");
+
+                        // Store features for click handling
+                        searchResultsPanel._features = features;
+
+                        // Add click handlers
+                        searchResultsPanel.querySelectorAll(".result-item").forEach(function(item) {
+                            item.addEventListener("click", function() {
+                                const idx = parseInt(this.getAttribute("data-index"));
+                                const feature = searchResultsPanel._features[idx];
+                                hideSearchResults();
+                                zoomToStore(feature);
+                            });
+                        });
+                    }
+
+                    function showNoResults() {
+                        searchResultsPanel.innerHTML = '<div class="no-results">No stores found</div>';
+                        searchResultsPanel.classList.add("visible");
+                    }
+
+                    function showSearchError(message) {
+                        searchResultsPanel.innerHTML = '<div class="search-error">' + escapeHtml(message) + '</div>';
+                        searchResultsPanel.classList.add("visible");
+                    }
+
+                    function hideSearchResults() {
+                        searchResultsPanel.classList.remove("visible");
+                        searchResultsPanel.innerHTML = "";
+                    }
+
+                    function escapeHtml(text) {
+                        const div = document.createElement("div");
+                        div.textContent = text;
+                        return div.innerHTML;
+                    }
+
+                    // Zoom and highlight store
+                    function zoomToStore(feature) {
+                        if (!feature.geometry) {
+                            console.warn("Store feature has no geometry");
+                            return;
+                        }
+
+                        // Clear any existing highlight
+                        clearSelection();
+
+                        // Get store info for logging
+                        const attrs = feature.attributes;
+                        const storeName = storeNameField ? (attrs[storeNameField.name] || "Store") : "Store";
+                        const storeNum = storeNumberField ? attrs[storeNumberField.name] : "";
+
+                        console.log("Zooming to store:", storeName, storeNum ? "(#" + storeNum + ")" : "");
+
+                        // Create highlight (green to distinguish from table selection)
+                        let pulseSize = 20;
+                        let growing = true;
+
+                        function addStoreHighlight(size) {
+                            highlightLayer.removeAll();
+
+                            // Outer glow - green color
+                            const outerGraphic = new Graphic({
+                                geometry: feature.geometry,
+                                symbol: {
+                                    type: "simple-marker",
+                                    color: [0, 180, 80, 0.3],
+                                    size: size + 15,
+                                    outline: {
+                                        color: [0, 180, 80, 0.5],
+                                        width: 3
+                                    }
+                                }
+                            });
+
+                            // Inner highlight
+                            const innerGraphic = new Graphic({
+                                geometry: feature.geometry,
+                                symbol: {
+                                    type: "simple-marker",
+                                    color: [0, 180, 80, 0.9],
+                                    size: 14,
+                                    outline: {
+                                        color: [255, 255, 255, 1],
+                                        width: 2
+                                    }
+                                }
+                            });
+
+                            highlightLayer.addMany([outerGraphic, innerGraphic]);
+                        }
+
+                        // Initial highlight
+                        addStoreHighlight(pulseSize);
+
+                        // Clear any existing pulse animation
+                        if (pulseAnimation) {
+                            clearInterval(pulseAnimation);
+                        }
+
+                        // Animate pulse
+                        pulseAnimation = setInterval(function() {
+                            if (growing) {
+                                pulseSize += 2;
+                                if (pulseSize >= 35) growing = false;
+                            } else {
+                                pulseSize -= 2;
+                                if (pulseSize <= 20) growing = true;
+                            }
+                            addStoreHighlight(pulseSize);
+                        }, 100);
+
+                        // Zoom to store
+                        view.goTo({
+                            target: feature.geometry,
+                            zoom: 15
+                        }, {
+                            duration: 500
+                        });
+
+                        // Show clear button
+                        document.getElementById("clearSelectionBtn").classList.add("visible");
+                    }
+
+                    // Event listeners for search
+                    const storeSearchClearBtn = document.getElementById("storeSearchClearBtn");
+
+                    storeSearchBtn.addEventListener("click", function() {
+                        searchStores(storeSearchInput.value);
+                    });
+
+                    storeSearchInput.addEventListener("keypress", function(e) {
+                        if (e.key === "Enter") {
+                            searchStores(storeSearchInput.value);
+                        }
+                    });
+
+                    // Clear search button
+                    storeSearchClearBtn.addEventListener("click", function() {
+                        storeSearchInput.value = "";
+                        hideSearchResults();
+                        clearSelection();
+                        storeSearchClearBtn.style.display = "none";
+                    });
+
+                    // Show clear button when zooming to a store
+                    const originalZoomToStore = zoomToStore;
+                    zoomToStore = function(feature) {
+                        originalZoomToStore(feature);
+                        storeSearchClearBtn.style.display = "inline-block";
+                    };
+
+                    // Close results when clicking outside
+                    document.addEventListener("click", function(e) {
+                        if (!searchResultsPanel.contains(e.target) &&
+                            e.target !== storeSearchInput &&
+                            e.target !== storeSearchBtn &&
+                            e.target !== storeSearchClearBtn) {
+                            hideSearchResults();
+                        }
+                    });
+
+                    // ========================================
+                    // END STORE SEARCH FEATURE
+                    // ========================================
+
                     // Add TimeSlider widget at the bottom - uses GeoTraceItem layer's time extent
                     let timeSlider = null;
 
@@ -1388,7 +1802,7 @@
                         }
 
                         // CSV header
-                        let csv = "Type,Weight,Store,Creation Date\n";
+                        let csv = "Type,Weight,Store Number,Store Name,Creation Date\n";
 
                         // Add rows
                         currentTableData.forEach(function(row) {
@@ -1400,10 +1814,11 @@
                             // Escape values that might contain commas or quotes
                             const type = '"' + String(row.type).replace(/"/g, '""') + '"';
                             const weight = row.weight;
-                            const store = '"' + String(row.store).replace(/"/g, '""') + '"';
+                            const storeNumber = '"' + String(row.storeNumber).replace(/"/g, '""') + '"';
+                            const storeName = '"' + String(row.storeName).replace(/"/g, '""') + '"';
                             const date = '"' + String(dateStr).replace(/"/g, '""') + '"';
 
-                            csv += type + "," + weight + "," + store + "," + date + "\n";
+                            csv += type + "," + weight + "," + storeNumber + "," + storeName + "," + date + "\n";
                         });
 
                         // Create download link
@@ -1487,7 +1902,7 @@
                         const tbody = document.getElementById("dataTableBody");
 
                         if (currentTableData.length === 0) {
-                            tbody.innerHTML = '<tr><td colspan="4" class="no-data">No data available</td></tr>';
+                            tbody.innerHTML = '<tr><td colspan="5" class="no-data">No data available</td></tr>';
                             return;
                         }
 
@@ -1502,7 +1917,8 @@
                             html += "<tr data-index=\"" + index + "\"" + selectedClass + ">" +
                                 "<td>" + row.type + "</td>" +
                                 "<td>" + row.weight.toLocaleString() + "</td>" +
-                                "<td>" + row.store + "</td>" +
+                                "<td>" + row.storeNumber + "</td>" +
+                                "<td>" + row.storeName + "</td>" +
                                 "<td>" + dateStr + "</td>" +
                                 "</tr>";
                         });
@@ -1711,7 +2127,8 @@
                                 tableRows.push({
                                     type: attrs.type || attrs.Type || "-",
                                     weight: value || 0,
-                                    store: attrs.store || attrs.Store || attrs.StoreNumber || "-",
+                                    storeNumber: attrs.store_number || attrs.StoreNumber || attrs.store_no || attrs.storeno || "-",
+                                    storeName: attrs.store_name || attrs.StoreName || attrs.store || attrs.Store || "-",
                                     date: attrs.CreationDate || attrs.creationDate || attrs.date || attrs.Date || attrs.CreatedDate || "-",
                                     geometry: feature.geometry
                                 });
